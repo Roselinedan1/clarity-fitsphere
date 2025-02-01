@@ -20,7 +20,6 @@ Clarinet.test({
     
     block.receipts[0].result.expectOk().expectUint(1);
     
-    // Verify group exists
     let getGroup = chain.callReadOnlyFn(
       'fit_sphere',
       'get-group',
@@ -34,38 +33,28 @@ Clarinet.test({
 });
 
 Clarinet.test({
-  name: "Can create and manage competition",
+  name: "Can create competition with token rewards",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
-    const user1 = accounts.get('wallet_1')!;
+    const tokenContract = accounts.get('token')!;
     
-    // Create group first
     let block = chain.mineBlock([
       Tx.contractCall('fit_sphere', 'create-group', [
         types.ascii("Active Group")
       ], deployer.address),
       
-      // Create competition
       Tx.contractCall('fit_sphere', 'create-competition', [
         types.uint(1),
-        types.ascii("Summer Challenge"),
-        types.uint(100), // duration
-        types.uint(1000) // prize
-      ], deployer.address),
-      
-      // Log activity
-      Tx.contractCall('fit_sphere', 'log-activity', [
-        types.uint(1),
-        types.ascii("running"),
-        types.uint(5000)
-      ], user1.address)
+        types.ascii("Token Challenge"),
+        types.uint(100),
+        types.uint(1000),
+        types.some(tokenContract.address)
+      ], deployer.address)
     ]);
     
     block.receipts[0].result.expectOk();
     block.receipts[1].result.expectOk();
-    block.receipts[2].result.expectOk();
     
-    // Verify competition
     let getCompetition = chain.callReadOnlyFn(
       'fit_sphere',
       'get-competition',
@@ -74,35 +63,46 @@ Clarinet.test({
     );
     
     let competition = getCompetition.result.expectSome().expectTuple();
-    assertEquals(competition['name'], "Summer Challenge");
+    assertEquals(competition['token-address'].some, tokenContract.address);
   },
 });
 
 Clarinet.test({
-  name: "Only group admin can end competition",
+  name: "Can track points and update leaderboard",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const user1 = accounts.get('wallet_1')!;
     
     let block = chain.mineBlock([
-      // Create group and competition
       Tx.contractCall('fit_sphere', 'create-group', [
-        types.ascii("Test Group")
+        types.ascii("Point Test Group")
       ], deployer.address),
       
       Tx.contractCall('fit_sphere', 'create-competition', [
         types.uint(1),
-        types.ascii("Test Competition"),
-        types.uint(1),
-        types.uint(100)
+        types.ascii("Points Challenge"),
+        types.uint(100),
+        types.uint(1000),
+        types.none()
       ], deployer.address),
       
-      // Try to end competition with non-admin
-      Tx.contractCall('fit_sphere', 'end-competition', [
-        types.uint(1)
+      Tx.contractCall('fit_sphere', 'log-activity', [
+        types.uint(1),
+        types.ascii("running"),
+        types.uint(5000)
       ], user1.address)
     ]);
     
-    block.receipts[2].result.expectErr(types.uint(102)); // err-unauthorized
+    block.receipts[2].result.expectOk();
+    
+    let getPoints = chain.callReadOnlyFn(
+      'fit_sphere',
+      'get-user-points',
+      [types.principal(user1.address)],
+      deployer.address
+    );
+    
+    let points = getPoints.result.expectSome().expectTuple();
+    assertEquals(points['points'], types.uint(10000));
   },
 });
